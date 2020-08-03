@@ -173,11 +173,36 @@ class HAM:
         Out: 
             The hamiltonian matrix element'''
 
-        pass
+        if excit_mat is None:
+            # diagonal
+            hel = self.nn
+            for pos, p in enumerate(det):
+                hel += self.h1[p,p]
+                for q in det[pos+1:None]:
+                    hel += self.h2[p,p,q,q] - self.h2[p,q,q,p]
+
+        elif len(excit_mat[0]) == 1:
+            # single
+            hel = self.h1[excit_mat[0][0],excit_mat[1][0]]
+            for q in det:
+                hel += self.h2[excit_mat[0][0], excit_mat[1][0], q, q] - \
+                 self.h2[excit_mat[0][0], q, q, excit_mat[1][0]]
+
+        elif len(excit_mat[0]) == 2:
+            # double
+            hel = self.h2[excit_mat[0][0], excit_mat[1][0], excit_mat[0][1], excit_mat[1][1]] - \
+                 self.h2[excit_mat[0][0], excit_mat[1][1], excit_mat[0][1], excit_mat[1][0]]
+
+        else:
+            # >2 excitation level
+            hel = 0
+
+        if parity is not None: hel *= parity
 
         return hel
 
     def excit_gen(self, det):
+        from scipy.special import comb
         ''' Take in a determinant, and create a single or double excitation or it.
         This does *not* take into account any spin (or spatial) symmetries.
         The determinant is represented as an ordered list of occupied orbital indices.
@@ -187,8 +212,43 @@ class HAM:
             o The parity of the excitation
             o The normalized probability of the excitation'''
 
-        pass
+        det_copy = det.copy()
 
+        if np.random.random() < self.p_single:
+            # this is a single excitation
+            ind = np.random.randint(0, len(det_copy))
+            orb_from = det_copy[ind]
+            orb_to = np.random.randint(0,2*self.nbasis)
+            while orb_to in det:
+                orb_to = np.random.randint(0,2*self.nbasis)
+            det_copy[ind] = orb_to
+            perm = elec_exchange_ops(det, ind)
+            excit_mat = [(orb_from,), (orb_to,)]
+            prob = self.p_single/(comb(self.nbasis, 1) * self.nelec)
+        else:
+            # double
+            ind1 = np.random.randint(0, len(det_copy))
+            ind2 = ind1
+            while ind2 == ind1:
+                ind2 = np.random.randint(0, len(det_copy))
+            orb_from_1 = det[ind1]
+            orb_from_2 = det[ind2]
+            orb_to_1 = np.random.randint(0, 2*self.nbasis)
+            while orb_to_1 in det:
+                orb_to_1 = np.random.randint(0, 2*self.nbasis)
+            orb_to_2 = np.random.randint(0,2*self.nbasis)
+            while (orb_to_2 in det) or (orb_to_1 == orb_to_2):
+                orb_to_2 = np.random.randint(0, 2 * self.nbasis)
+            det_copy[ind1] = orb_to_1
+            perm = elec_exchange_ops(det_copy, ind1)
+            det_copy = sorted(det_copy)
+            det_copy[ind2] = orb_to_2
+            perm += elec_exchange_ops(det_copy, ind2)
+            excit_mat = [(orb_from_1, orb_from_2), (orb_to_1, orb_to_2)]
+            prob = (1-self.p_single) * 1/(self.nelec*(self.nelec - 1) * 2*(self.nbasis - 1))
+
+
+        excited_det = sorted(det_copy)
         return excited_det, excit_mat, (-1)**perm, prob
 
 def elec_exchange_ops(det, ind):
@@ -202,8 +262,20 @@ def elec_exchange_ops(det, ind):
     
     Return: The number of pairwise permutations required.'''
 
-    pass
-
+    perm = 0
+    det_copy = det.copy()
+    if ind == 0:
+        step = 1
+    elif (ind == -1) or (ind == len(det)-1):
+        step = -1
+    else:
+        step = 1 if det[ind] > det[ind + 1] else -1
+    while det_copy != sorted(det_copy):
+        tmp = det_copy[ind+step]
+        det_copy[ind+step] = det_copy[ind]
+        det_copy[ind] = tmp
+        ind+=step
+        perm += 1
     return perm
 
 def calc_excit_mat_parity(det, excited_det):
@@ -211,9 +283,39 @@ def calc_excit_mat_parity(det, excited_det):
     the excitation matrix (see the definition in the slater-condon function), 
     and parity of the excitation'''
 
-    pass
+    # find the indices being excited from
+    from_inds = []
+    from_orbs = []
+    for from_ind, from_orb in enumerate(det):
+        if from_orb not in excited_det:
+            from_inds.append(from_ind)
+            from_orbs.append(from_orb)
 
-    return excit_mat, (-1)**perm
+    to_inds = []
+    to_orbs = []
+    for to_ind, to_orb in enumerate(excited_det):
+        if to_orb not in det:
+            to_inds.append(to_ind)
+            to_orbs.append(to_orb)
+
+    # found all the indices
+    assert len(from_inds) == len(to_inds)
+    excit_mat = [tuple(from_orbs), tuple(to_orbs)]
+
+    perm=0
+    det_copy = det.copy()
+    for from_orb, to_orb in zip(from_orbs, to_orbs):
+        ind = det_copy.index(from_orb)
+        det_copy[ind] = to_orb
+        perm += elec_exchange_ops(det_copy,ind)
+        det_copy = sorted(det_copy)
+
+    parity = (-1)**perm
+
+    if not list(excit_mat):
+        excit_mat = parity = None
+
+    return excit_mat, parity
 
 if __name__ == '__main__':
     import matplotlib.pyplot as plt
@@ -277,7 +379,7 @@ if __name__ == '__main__':
     det_root = [0, 1, 4, 6, 8, 12, 13, 15]
     print('Running unit tests for excitation generation function, from determinant {}...'.format(str(det_root)))
     sys_ham = HAM(filename='FCIDUMP.8H',p_single=0.1)
-    n_att = 20000
+    n_att = 100000
     excited_dets = {}
     for attempt in range(n_att):
         if attempt % 1000 == 0:
@@ -289,7 +391,7 @@ if __name__ == '__main__':
         assert(len(det_root) == len(excited_det))
 
         # Check that returned determinant is an ordered list
-        assert(all(excited_det[i] <= excited_det[i+1] for i in xrange(len(excited_det)-1)))
+        assert(all(excited_det[i] <= excited_det[i+1] for i in range(len(excited_det)-1)))
 
         # Store the excited determinant
         if repr(excited_det) in excited_dets:
