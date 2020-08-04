@@ -212,43 +212,37 @@ class HAM:
             o The parity of the excitation
             o The normalized probability of the excitation'''
 
-        det_copy = det.copy()
+        excited_det = det.copy()
+        single = np.random.random() < self.p_single
 
-        if np.random.random() < self.p_single:
-            # this is a single excitation
-            ind = np.random.randint(0, len(det_copy))
-            orb_from = det_copy[ind]
-            orb_to = np.random.randint(0,2*self.nbasis)
-            while orb_to in det:
-                orb_to = np.random.randint(0,2*self.nbasis)
-            det_copy[ind] = orb_to
-            perm = elec_exchange_ops(det, ind)
+        ind = np.random.randint(0, len(excited_det))
+        orb_from = excited_det[ind]
+        orb_to = np.random.randint(0,2 * self.nbasis)
+        while orb_to in det:
+            orb_to = np.random.randint(0,2 * self.nbasis)
+        excited_det[ind] = orb_to
+        perm = elec_exchange_ops(excited_det, ind)
+        excited_det = sorted(excited_det)
+
+        if single:
             excit_mat = [(orb_from,), (orb_to,)]
-            prob = self.p_single/(comb(self.nbasis, 1) * self.nelec)
+            prob = self.p_single/(self.nelec*(2*self.nbasis - self.nelec))
         else:
-            # double
-            ind1 = np.random.randint(0, len(det_copy))
-            ind2 = ind1
-            while ind2 == ind1:
-                ind2 = np.random.randint(0, len(det_copy))
-            orb_from_1 = det[ind1]
-            orb_from_2 = det[ind2]
-            orb_to_1 = np.random.randint(0, 2*self.nbasis)
-            while orb_to_1 in det:
-                orb_to_1 = np.random.randint(0, 2*self.nbasis)
-            orb_to_2 = np.random.randint(0,2*self.nbasis)
-            while (orb_to_2 in det) or (orb_to_1 == orb_to_2):
+            # do a double excitation
+            ind = np.random.randint(0, len(excited_det))
+            orb_from_2 = excited_det[ind]
+            orb_to_2 = np.random.randint(0, 2 * self.nbasis)
+            while (orb_to_2 in excited_det) or (orb_to_2 == orb_from) or (orb_from_2 == orb_to):
+                # ^ make sure we're not just replacing the singly-excited electron
+                ind = np.random.randint(0, len(excited_det))
+                orb_from_2 = excited_det[ind]
                 orb_to_2 = np.random.randint(0, 2 * self.nbasis)
-            det_copy[ind1] = orb_to_1
-            perm = elec_exchange_ops(det_copy, ind1)
-            det_copy = sorted(det_copy)
-            det_copy[ind2] = orb_to_2
-            perm += elec_exchange_ops(det_copy, ind2)
-            excit_mat = [(orb_from_1, orb_from_2), (orb_to_1, orb_to_2)]
-            prob = (1-self.p_single) * 1/(self.nelec*(self.nelec - 1) * 2*(self.nbasis - 1))
+            excited_det[ind] = orb_to_2
+            perm += elec_exchange_ops(excited_det, ind)
+            excit_mat = [(orb_from,orb_from_2), (orb_to,orb_to_2)]
+            prob = (1 - self.p_single) / (comb(2*self.nbasis - self.nelec, 2)*comb(self.nelec, 2))
+            excited_det = sorted(excited_det)
 
-
-        excited_det = sorted(det_copy)
         return excited_det, excit_mat, (-1)**perm, prob
 
 def elec_exchange_ops(det, ind):
@@ -379,7 +373,7 @@ if __name__ == '__main__':
     det_root = [0, 1, 4, 6, 8, 12, 13, 15]
     print('Running unit tests for excitation generation function, from determinant {}...'.format(str(det_root)))
     sys_ham = HAM(filename='FCIDUMP.8H',p_single=0.1)
-    n_att = 100000
+    n_att = 10000000
     excited_dets = {}
     for attempt in range(n_att):
         if attempt % 1000 == 0:

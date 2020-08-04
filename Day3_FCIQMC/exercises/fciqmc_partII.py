@@ -8,8 +8,8 @@ sys_ham = det_ops.HAM(filename = 'FCIDUMP.6H', p_single=0.1)
 ref_energy = sys_ham.slater_condon(sys_ham.ref_det, sys_ham.ref_det, None, None)
 
 # Setup simulation parameters. See system.py for details.  
-sim_params = system.PARAMS(totwalkers=400 , initwalkers=10, init_shift=0.1, 
-        shift_damp=0.025, timestep=2.e-2, det_thresh=0.75, eqm_iters=250, 
+sim_params = system.PARAMS(totwalkers=20000 , initwalkers=100, init_shift=0.1,
+        shift_damp=0.025, timestep=2.e-2, det_thresh=0.75, eqm_iters=500,
         max_iter=150000, stats_cycle=5, seed=7, init_thresh=2.0)
 # Setup a statistics object, which accumulates various run-time variables.
 # See system.py for more details.
@@ -31,6 +31,8 @@ for sim_stats.iter_curr in range(sim_params.max_iter):
     # Note that this is python3 format
     # Since we are modifying inplace, want to use .items, rather than setting up a true iterator
     for det_str, det_amp in list(walkers.items()):
+        is_initiator = not sim_params.det_thresh or (det_amp > sim_params.det_thresh)
+        # if det_thresh is 0 or 'falsey', this is an initiator, else it is one only if det_amp > det_thresh
 
         # Convert determinant string into a true list
         det = ast.literal_eval(det_str)
@@ -74,9 +76,9 @@ for sim_stats.iter_curr in range(sim_params.max_iter):
 
             if abs(p_spawn) > 1.e-12:
                 if spawn_str in spawned_walkers:
-                    spawned_walkers[spawn_str] += p_spawn
+                    spawned_walkers[spawn_str].append((p_spawn, is_initiator))
                 else:
-                    spawned_walkers[spawn_str] = p_spawn
+                    spawned_walkers[spawn_str] = [(p_spawn, is_initiator)]
 
         # DEATH STEP
         # Remember to now remove the reference energy from the determinant (this was done implicitly in part I)
@@ -88,7 +90,13 @@ for sim_stats.iter_curr in range(sim_params.max_iter):
     # However, if we are using the initiator approximation, we should also test whether we want 
     # to transfer the walker weight across, or whether we want to abort the spawning attempt.
     for spawn_str, spawn_amp in spawned_walkers.items():
-        pass
+        weight_from_all = sum(s[0] for s in spawn_amp)
+        weight_from_inits = sum(s[0] for s in spawn_amp if s[1])
+        if spawn_str in walkers:
+            walkers[spawn_str] += weight_from_all
+        else:
+            walkers[spawn_str] = weight_from_inits
+
             
 # Every sim_params.stats_cycle iterations, readjust shift (if in variable shift mode) and print out statistics.
     if sim_stats.iter_curr % sim_params.stats_cycle == 0:
